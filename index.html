@@ -1,0 +1,1447 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Domain Expansion: Camera Gesture Domains</title>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js" crossorigin="anonymous"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js" crossorigin="anonymous"></script>
+    <style>
+        *, *::before, *::after {
+            box-sizing: border-box;
+        }
+
+        html,
+        body {
+            width: 100%;
+            height: 100%;
+            margin: 0;
+            overflow: hidden;
+            background: #000;
+            color: #f7f7f7;
+            font-family: Inter, "Segoe UI", system-ui, sans-serif;
+            user-select: none;
+        }
+
+        body {
+            touch-action: none;
+        }
+
+        canvas {
+            position: fixed;
+            inset: 0;
+            width: 100%;
+            height: 100%;
+            display: block;
+        }
+
+        video {
+            display: none;
+        }
+
+        #ui {
+            position: fixed;
+            inset: 0;
+            z-index: 5;
+            display: grid;
+            place-items: center;
+            padding: 24px;
+            pointer-events: none;
+            transition: opacity 700ms ease;
+        }
+
+        #ui.hidden {
+            opacity: 0;
+        }
+
+        .intro {
+            width: min(560px, 92vw);
+            text-align: center;
+        }
+
+        #title-text {
+            margin: 0 0 16px;
+            font-size: clamp(2rem, 6vw, 4.8rem);
+            line-height: 0.94;
+            letter-spacing: 0;
+            text-transform: uppercase;
+            text-shadow: 0 0 28px rgba(255, 255, 255, 0.42);
+        }
+
+        .hint {
+            margin: 0 auto 18px;
+            max-width: 520px;
+            color: rgba(255, 255, 255, 0.72);
+            font-size: clamp(0.86rem, 2.1vw, 1rem);
+            line-height: 1.55;
+        }
+
+        #charge-wrap {
+            width: min(340px, 80vw);
+            height: 6px;
+            margin: 0 auto 18px;
+            overflow: hidden;
+            background: rgba(255, 255, 255, 0.12);
+            border-radius: 999px;
+            opacity: 0;
+            transition: opacity 220ms ease;
+        }
+
+        #charge-wrap.active {
+            opacity: 1;
+        }
+
+        #charge-bar {
+            width: 0%;
+            height: 100%;
+            border-radius: inherit;
+            background: #fff;
+            box-shadow: 0 0 22px #fff;
+        }
+
+        .controls {
+            display: grid;
+            gap: 8px;
+            justify-items: center;
+            color: rgba(255, 255, 255, 0.58);
+            font-size: clamp(0.76rem, 1.8vw, 0.94rem);
+            line-height: 1.35;
+        }
+
+        .controls b {
+            color: #fff;
+            font-weight: 700;
+        }
+
+        #domain-label {
+            position: fixed;
+            left: 50%;
+            bottom: max(24px, env(safe-area-inset-bottom));
+            z-index: 6;
+            width: min(720px, 92vw);
+            transform: translateX(-50%) translateY(12px);
+            text-align: center;
+            color: #fff;
+            opacity: 0;
+            pointer-events: none;
+            text-transform: uppercase;
+            font-size: clamp(1.1rem, 3.3vw, 2.1rem);
+            line-height: 1.1;
+            letter-spacing: 0;
+            text-shadow: 0 0 26px currentColor;
+            transition: opacity 700ms ease, transform 700ms ease, color 350ms ease;
+        }
+
+        #domain-label.visible {
+            opacity: 1;
+            transform: translateX(-50%) translateY(0);
+        }
+
+        #audio-pill,
+        #status-pill {
+            position: fixed;
+            z-index: 8;
+            left: 16px;
+            max-width: calc(100vw - 32px);
+            padding: 8px 10px;
+            border: 1px solid rgba(255, 255, 255, 0.12);
+            border-radius: 8px;
+            background: rgba(0, 0, 0, 0.48);
+            color: rgba(255, 255, 255, 0.76);
+            font-size: 12px;
+            line-height: 1.2;
+            backdrop-filter: blur(10px);
+            transition: opacity 350ms ease;
+        }
+
+        #audio-pill {
+            top: 16px;
+        }
+
+        #status-pill {
+            top: 56px;
+            opacity: 0;
+        }
+
+        #audio-pill.hidden,
+        #status-pill.hidden {
+            opacity: 0;
+            pointer-events: none;
+        }
+
+        #reset-btn {
+            position: fixed;
+            z-index: 9;
+            top: 16px;
+            right: 16px;
+            min-width: 84px;
+            min-height: 38px;
+            padding: 0 12px;
+            border: 1px solid rgba(255, 255, 255, 0.16);
+            border-radius: 8px;
+            background: rgba(0, 0, 0, 0.42);
+            color: rgba(255, 255, 255, 0.72);
+            font: inherit;
+            font-size: 13px;
+            cursor: pointer;
+            opacity: 0;
+            pointer-events: none;
+            backdrop-filter: blur(10px);
+            transition: opacity 350ms ease, border-color 180ms ease, color 180ms ease;
+        }
+
+        #reset-btn:hover {
+            color: #fff;
+            border-color: rgba(255, 255, 255, 0.42);
+        }
+
+        #reset-btn.visible {
+            opacity: 1;
+            pointer-events: auto;
+        }
+
+        #debug {
+            position: fixed;
+            right: 16px;
+            bottom: 16px;
+            z-index: 10;
+            min-width: 180px;
+            padding: 10px 12px;
+            border: 1px solid rgba(255, 255, 255, 0.12);
+            border-radius: 8px;
+            background: rgba(0, 0, 0, 0.68);
+            color: #9cffb6;
+            font: 12px/1.6 Consolas, "Courier New", monospace;
+        }
+
+        #debug[hidden] {
+            display: none;
+        }
+
+        @media (max-width: 560px) {
+            #reset-btn {
+                min-width: 72px;
+            }
+
+            #audio-pill,
+            #status-pill {
+                right: 16px;
+                width: auto;
+            }
+        }
+    </style>
+</head>
+<body>
+    <canvas id="c"></canvas>
+    <video id="input_video" autoplay playsinline muted></video>
+
+    <div id="ui">
+        <div class="intro">
+            <h1 id="title-text">Domain Expansion</h1>
+            <div id="charge-wrap"><div id="charge-bar"></div></div>
+            <p class="hint">Camera tracks hand signs in the background. Hold a number sign or domain sign to summon, then hold a different sign to transform while a domain is already running.</p>
+            <div class="controls">
+                <div><b>1</b> or fist: Avinash singularity</div>
+                <div><b>2</b> or two fingers: Gojo void</div>
+                <div><b>3</b> or two hands middle-up: Sukuna shrine</div>
+                <div>Keyboard <b>1</b> <b>2</b> <b>3</b> also switches instantly. Open both hands to zoom.</div>
+            </div>
+        </div>
+    </div>
+
+    <div id="audio-pill">Tap once or press 1, 2, or 3 to unlock music.</div>
+    <div id="status-pill" class="hidden"></div>
+    <div id="domain-label"></div>
+    <button id="reset-btn" type="button">Reset</button>
+
+    <div id="debug" hidden>
+        <div>CAM: <span id="s-cam">Starting</span></div>
+        <div>HANDS: <span id="s-hands">0</span></div>
+        <div>GESTURE: <span id="s-gest">NONE</span></div>
+        <div>STATE: <span id="s-state">IDLE</span></div>
+    </div>
+
+<script>
+const STATES = {
+    IDLE: 'IDLE',
+    CHARGING: 'CHARGING',
+    EXPANDING: 'EXPANDING',
+    DOMAIN: 'DOMAIN'
+};
+
+const D = {
+    NONE: 'NONE',
+    AVINASH: 'AVINASH',
+    GOJO: 'GOJO',
+    SUKUNA: 'SUKUNA'
+};
+
+const CHARGE_MS = 1150;
+const SWITCH_HOLD_MS = 620;
+const EXPAND_MS = 1300;
+const SWITCH_MS = 1500;
+const PARTICLE_COUNT = 900;
+
+const DOMAIN_INFO = {
+    [D.AVINASH]: {
+        name: 'Avinash Singularity',
+        label: 'Quantum Singularity',
+        pri: '#f5f5f5',
+        sec: '#77f7ff',
+        accent: '#b45cff',
+        rgb: '220,235,255',
+        dark: 'rgba(2,2,6,0.36)'
+    },
+    [D.GOJO]: {
+        name: 'Gojo Void',
+        label: 'Unlimited Void',
+        pri: '#dce9ff',
+        sec: '#70a8ff',
+        accent: '#ffffff',
+        rgb: '130,180,255',
+        dark: 'rgba(0,3,18,0.35)'
+    },
+    [D.SUKUNA]: {
+        name: 'Sukuna Shrine',
+        label: 'Malevolent Shrine',
+        pri: '#ff4028',
+        sec: '#ffb047',
+        accent: '#100000',
+        rgb: '255,42,16',
+        dark: 'rgba(17,0,0,0.36)'
+    }
+};
+
+const KEY_TO_DOMAIN = {
+    '1': D.AVINASH,
+    '2': D.GOJO,
+    '3': D.SUKUNA
+};
+
+const ASSETS = {
+    avinashBlackhole: 'domain-assets/avinash-blackhole.jpeg',
+    gojoEye: 'domain-assets/gojo-eye.jpeg',
+    gojoBlueVoid: 'domain-assets/gojo-blue-void.jpeg',
+    sukunaShrine: 'domain-assets/sukuna-shrine.jpeg',
+    sukunaLotus: 'domain-assets/sukuna-lotus.jpeg',
+    sukunaRedWater: 'domain-assets/sukuna-red-water.jpeg'
+};
+
+const images = {};
+for (const [key, src] of Object.entries(ASSETS)) {
+    const img = new Image();
+    img.decoding = 'async';
+    img.src = src;
+    images[key] = img;
+}
+
+const clamp = (n, min, max) => Math.max(min, Math.min(max, n));
+const lerp = (a, b, t) => a + (b - a) * t;
+const easeOutCubic = t => 1 - Math.pow(1 - clamp(t, 0, 1), 3);
+const easeInOut = t => {
+    t = clamp(t, 0, 1);
+    return t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2;
+};
+
+function drawCoverImage(ctx, img, w, h, alpha = 1, scale = 1, rotation = 0, dx = 0, dy = 0) {
+    if (!img || !img.complete || !img.naturalWidth) return false;
+    const ratio = Math.max(w / img.naturalWidth, h / img.naturalHeight) * scale;
+    const iw = img.naturalWidth * ratio;
+    const ih = img.naturalHeight * ratio;
+
+    ctx.save();
+    ctx.globalAlpha *= alpha;
+    ctx.translate(w * 0.5 + dx, h * 0.5 + dy);
+    ctx.rotate(rotation);
+    ctx.drawImage(img, -iw * 0.5, -ih * 0.5, iw, ih);
+    ctx.restore();
+    return true;
+}
+
+function vignette(ctx, w, h, alpha = 0.82) {
+    const r = Math.max(w, h) * 0.72;
+    const g = ctx.createRadialGradient(w * 0.5, h * 0.47, r * 0.1, w * 0.5, h * 0.52, r);
+    g.addColorStop(0, 'rgba(0,0,0,0)');
+    g.addColorStop(0.68, `rgba(0,0,0,${alpha * 0.25})`);
+    g.addColorStop(1, `rgba(0,0,0,${alpha})`);
+    ctx.fillStyle = g;
+    ctx.fillRect(0, 0, w, h);
+}
+
+function lineBurst(ctx, cx, cy, radius, count, color, t, alpha = 1) {
+    ctx.save();
+    ctx.globalAlpha *= alpha;
+    ctx.strokeStyle = color;
+    ctx.lineWidth = 1;
+    for (let i = 0; i < count; i++) {
+        const a = (i / count) * Math.PI * 2 + t;
+        const r1 = radius * (0.2 + 0.08 * Math.sin(t * 2 + i));
+        const r2 = radius * (0.85 + 0.12 * Math.sin(t + i * 0.71));
+        ctx.beginPath();
+        ctx.moveTo(cx + Math.cos(a) * r1, cy + Math.sin(a) * r1);
+        ctx.lineTo(cx + Math.cos(a) * r2, cy + Math.sin(a) * r2);
+        ctx.stroke();
+    }
+    ctx.restore();
+}
+
+class DomainMusic {
+    constructor(pill) {
+        this.pill = pill;
+        this.ctx = null;
+        this.master = null;
+        this.active = null;
+        this.charge = null;
+        this.unlocked = false;
+    }
+
+    boot() {
+        if (this.ctx) return;
+        this.ctx = new (window.AudioContext || window.webkitAudioContext)();
+        this.master = this.ctx.createGain();
+        this.master.gain.value = 0.55;
+        this.master.connect(this.ctx.destination);
+    }
+
+    async unlock() {
+        this.boot();
+        try {
+            await this.ctx.resume();
+            this.unlocked = this.ctx.state === 'running';
+        } catch (_) {
+            this.unlocked = false;
+        }
+        if (this.unlocked) this.pill.classList.add('hidden');
+        return this.unlocked;
+    }
+
+    makeLayer(domain) {
+        this.boot();
+        const now = this.ctx.currentTime;
+        const bus = this.ctx.createGain();
+        bus.gain.setValueAtTime(0.001, now);
+        bus.gain.exponentialRampToValueAtTime(0.72, now + 1.1);
+        bus.connect(this.master);
+        return { domain, bus, nodes: [], timers: [] };
+    }
+
+    fadeLayer(layer, seconds = 0.9) {
+        if (!layer) return;
+        const now = this.ctx.currentTime;
+        layer.timers.forEach(id => clearInterval(id));
+        layer.timers = [];
+        try {
+            layer.bus.gain.cancelScheduledValues(now);
+            layer.bus.gain.setValueAtTime(Math.max(layer.bus.gain.value, 0.001), now);
+            layer.bus.gain.exponentialRampToValueAtTime(0.001, now + seconds);
+        } catch (_) {}
+        setTimeout(() => {
+            layer.nodes.forEach(node => {
+                try { node.stop(); } catch (_) {}
+                try { node.disconnect(); } catch (_) {}
+            });
+            try { layer.bus.disconnect(); } catch (_) {}
+        }, (seconds + 0.2) * 1000);
+    }
+
+    osc(layer, type, freq, gainValue, detune = 0, filterFreq = null) {
+        const now = this.ctx.currentTime;
+        const o = this.ctx.createOscillator();
+        const g = this.ctx.createGain();
+        o.type = type;
+        o.frequency.value = freq;
+        o.detune.value = detune;
+        g.gain.setValueAtTime(0.001, now);
+        g.gain.exponentialRampToValueAtTime(gainValue, now + 1.2);
+
+        if (filterFreq) {
+            const f = this.ctx.createBiquadFilter();
+            f.type = 'lowpass';
+            f.frequency.value = filterFreq;
+            o.connect(f);
+            f.connect(g);
+            layer.nodes.push(f);
+        } else {
+            o.connect(g);
+        }
+        g.connect(layer.bus);
+        o.start();
+        layer.nodes.push(o, g);
+        return o;
+    }
+
+    note(layer, type, freq, dur, peak, when = 0, filterFreq = null) {
+        const t = this.ctx.currentTime + when;
+        const o = this.ctx.createOscillator();
+        const g = this.ctx.createGain();
+        o.type = type;
+        o.frequency.setValueAtTime(freq, t);
+        g.gain.setValueAtTime(0.001, t);
+        g.gain.exponentialRampToValueAtTime(peak, t + 0.035);
+        g.gain.exponentialRampToValueAtTime(0.001, t + dur);
+
+        if (filterFreq) {
+            const f = this.ctx.createBiquadFilter();
+            f.type = 'lowpass';
+            f.frequency.value = filterFreq;
+            o.connect(f);
+            f.connect(g);
+            layer.nodes.push(f);
+        } else {
+            o.connect(g);
+        }
+        g.connect(layer.bus);
+        o.start(t);
+        o.stop(t + dur + 0.05);
+        layer.nodes.push(o, g);
+    }
+
+    noise(layer, dur, peak, filterFreq = 900) {
+        const buffer = this.ctx.createBuffer(1, Math.floor(this.ctx.sampleRate * dur), this.ctx.sampleRate);
+        const data = buffer.getChannelData(0);
+        for (let i = 0; i < data.length; i++) {
+            const falloff = 1 - i / data.length;
+            data[i] = (Math.random() * 2 - 1) * falloff;
+        }
+        const src = this.ctx.createBufferSource();
+        const f = this.ctx.createBiquadFilter();
+        const g = this.ctx.createGain();
+        src.buffer = buffer;
+        f.type = 'bandpass';
+        f.frequency.value = filterFreq;
+        f.Q.value = 1.4;
+        g.gain.value = peak;
+        src.connect(f);
+        f.connect(g);
+        g.connect(layer.bus);
+        src.start();
+        layer.nodes.push(src, f, g);
+    }
+
+    impact(domain) {
+        this.boot();
+        const layer = this.makeLayer(domain);
+        layer.bus.gain.value = 0.9;
+        const root = domain === D.SUKUNA ? 38 : domain === D.GOJO ? 72 : 48;
+        this.note(layer, 'sine', root, 1.15, 0.75, 0, 180);
+        this.note(layer, domain === D.SUKUNA ? 'sawtooth' : 'triangle', root * 2.01, 0.55, 0.32, 0.04, 500);
+        this.noise(layer, 0.42, domain === D.SUKUNA ? 0.44 : 0.25, domain === D.GOJO ? 1600 : 720);
+        this.fadeLayer(layer, 1.2);
+    }
+
+    startCharge(domain) {
+        this.stopCharge();
+        this.boot();
+        const now = this.ctx.currentTime;
+        const bus = this.ctx.createGain();
+        const o = this.ctx.createOscillator();
+        const f = this.ctx.createBiquadFilter();
+        const root = domain === D.SUKUNA ? 34 : domain === D.GOJO ? 88 : 44;
+        bus.gain.setValueAtTime(0.001, now);
+        bus.gain.exponentialRampToValueAtTime(0.22, now + 0.35);
+        o.type = domain === D.SUKUNA ? 'sawtooth' : 'sine';
+        o.frequency.value = root;
+        f.type = 'lowpass';
+        f.frequency.value = 260;
+        o.connect(f);
+        f.connect(bus);
+        bus.connect(this.master);
+        o.start();
+        this.charge = { o, f, bus };
+    }
+
+    stopCharge() {
+        if (!this.charge || !this.ctx) return;
+        const now = this.ctx.currentTime;
+        const { o, bus } = this.charge;
+        try {
+            bus.gain.cancelScheduledValues(now);
+            bus.gain.setValueAtTime(Math.max(bus.gain.value, 0.001), now);
+            bus.gain.exponentialRampToValueAtTime(0.001, now + 0.28);
+            o.stop(now + 0.3);
+        } catch (_) {}
+        this.charge = null;
+    }
+
+    startDomain(domain) {
+        this.unlock();
+        const previous = this.active;
+        const layer = this.makeLayer(domain);
+        this.active = layer;
+        if (previous) this.fadeLayer(previous, 1.05);
+
+        if (domain === D.AVINASH) {
+            this.osc(layer, 'triangle', 36, 0.16, -8, 280);
+            this.osc(layer, 'sine', 54, 0.1, 6, 420);
+            this.osc(layer, 'sine', 108, 0.05, 0, 620);
+            const notes = [144, 171, 216, 288, 342, 216];
+            let i = 0;
+            layer.timers.push(setInterval(() => {
+                this.note(layer, 'triangle', notes[i++ % notes.length], 0.42, 0.08, 0, 1100);
+            }, 440));
+            layer.timers.push(setInterval(() => this.note(layer, 'sine', 72, 1.6, 0.05, 0, 220), 2600));
+        }
+
+        if (domain === D.GOJO) {
+            this.osc(layer, 'sine', 98, 0.08, -4, 800);
+            this.osc(layer, 'triangle', 147, 0.075, 5, 1200);
+            this.osc(layer, 'sine', 220, 0.048, 0, 1800);
+            const notes = [392, 494, 587, 740, 880, 1174, 880, 740];
+            let i = 0;
+            layer.timers.push(setInterval(() => {
+                this.note(layer, 'sine', notes[i++ % notes.length], 0.34, 0.07, 0, 2600);
+            }, 310));
+            layer.timers.push(setInterval(() => this.noise(layer, 0.18, 0.025, 3400), 1250));
+        }
+
+        if (domain === D.SUKUNA) {
+            this.osc(layer, 'sawtooth', 32, 0.16, -5, 160);
+            this.osc(layer, 'square', 48, 0.055, 3, 240);
+            const bass = [38, 38, 45, 34, 51, 45];
+            let i = 0;
+            layer.timers.push(setInterval(() => {
+                this.note(layer, 'sawtooth', bass[i++ % bass.length], 0.28, 0.17, 0, 180);
+                this.noise(layer, 0.16, 0.18, 540);
+            }, 520));
+            layer.timers.push(setInterval(() => {
+                this.note(layer, 'square', 152, 0.12, 0.07, 0, 900);
+                this.note(layer, 'square', 114, 0.12, 0.055, 0.08, 800);
+            }, 1040));
+        }
+    }
+
+    stopAll() {
+        this.stopCharge();
+        if (this.active) this.fadeLayer(this.active, 0.6);
+        this.active = null;
+    }
+}
+
+class GestureDetector {
+    constructor(callbacks) {
+        this.cb = callbacks;
+        this.current = D.NONE;
+        this.startedAt = 0;
+        this.raw = D.NONE;
+        this.stable = D.NONE;
+        this.stableFrames = 0;
+        this.lastRaw = D.NONE;
+        this.rawHandDist = 0.45;
+
+        this.camEl = document.getElementById('s-cam');
+        this.handsEl = document.getElementById('s-hands');
+        this.gestEl = document.getElementById('s-gest');
+        this.initMediaPipe();
+    }
+
+    dist(a, b) {
+        const dx = a.x - b.x;
+        const dy = a.y - b.y;
+        return Math.hypot(dx, dy);
+    }
+
+    isUp(lm, tip, pip, margin = 0.018) {
+        return lm[tip].y < lm[pip].y - margin;
+    }
+
+    isDown(lm, tip, pip, margin = 0.005) {
+        return lm[tip].y >= lm[pip].y - margin;
+    }
+
+    fingers(lm) {
+        return {
+            index: this.isUp(lm, 8, 6),
+            middle: this.isUp(lm, 12, 10),
+            ring: this.isUp(lm, 16, 14),
+            pinky: this.isUp(lm, 20, 18)
+        };
+    }
+
+    countExtended(f) {
+        return Number(f.index) + Number(f.middle) + Number(f.ring) + Number(f.pinky);
+    }
+
+    isOpen(lm) {
+        const f = this.fingers(lm);
+        return this.countExtended(f) >= 4 && this.dist(lm[8], lm[0]) > 0.22;
+    }
+
+    classify(hands) {
+        if (!hands || hands.length === 0) return D.NONE;
+        const h1 = hands[0];
+        const h2 = hands[1] || null;
+        const f1 = this.fingers(h1);
+        const count = this.countExtended(f1);
+
+        if (h2) {
+            const f2 = this.fingers(h2);
+            const wristsClose = this.dist(h1[0], h2[0]) < 0.42;
+            const bothMiddle = f1.middle && f2.middle && !f1.index && !f2.index;
+            if (wristsClose && bothMiddle) return D.SUKUNA;
+        }
+
+        const fist = this.isDown(h1, 8, 6) && this.isDown(h1, 12, 10) && this.isDown(h1, 16, 14) && this.isDown(h1, 20, 18);
+        if (fist || (count === 1 && f1.index)) return D.AVINASH;
+        if (count === 2 && f1.index && f1.middle) return D.GOJO;
+        if (count === 3 && f1.index && f1.middle && f1.ring) return D.SUKUNA;
+
+        return D.NONE;
+    }
+
+    initMediaPipe() {
+        if (!window.Hands || !window.Camera) {
+            this.camEl.textContent = 'MediaPipe missing';
+            return;
+        }
+
+        const hands = new Hands({
+            locateFile: file => `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${file}`
+        });
+
+        hands.setOptions({
+            maxNumHands: 2,
+            modelComplexity: 1,
+            minDetectionConfidence: 0.68,
+            minTrackingConfidence: 0.6
+        });
+
+        hands.onResults(results => this.onResults(results));
+
+        const camera = new Camera(document.getElementById('input_video'), {
+            onFrame: async () => {
+                await hands.send({ image: document.getElementById('input_video') });
+            },
+            width: 640,
+            height: 480
+        });
+
+        camera.start()
+            .then(() => {
+                this.camEl.textContent = 'Active';
+            })
+            .catch(err => {
+                this.camEl.textContent = 'Camera blocked';
+                console.warn('Camera error:', err);
+            });
+    }
+
+    updateStable(raw) {
+        if (raw === this.lastRaw) {
+            this.stableFrames += 1;
+        } else {
+            this.lastRaw = raw;
+            this.stableFrames = 1;
+        }
+        if (this.stableFrames >= 3) this.stable = raw;
+        return this.stable;
+    }
+
+    onResults(results) {
+        const landmarks = results.multiHandLandmarks || [];
+        this.handsEl.textContent = landmarks.length;
+
+        if (landmarks.length === 2 && this.isOpen(landmarks[0]) && this.isOpen(landmarks[1])) {
+            const d = this.dist(landmarks[0][0], landmarks[1][0]);
+            this.rawHandDist = d;
+            this.cb.onZoom(d);
+        }
+
+        const detected = this.updateStable(this.classify(landmarks));
+        this.gestEl.textContent = detected;
+
+        const now = performance.now();
+        if (detected !== this.current) {
+            if (this.current !== D.NONE) this.cb.onEnd(this.current, now - this.startedAt);
+            this.current = detected;
+            this.startedAt = now;
+            if (detected !== D.NONE) this.cb.onStart(detected);
+            return;
+        }
+
+        if (detected !== D.NONE) this.cb.onHold(detected, now - this.startedAt);
+    }
+}
+
+class Particle {
+    constructor(w, h) {
+        this.w = w;
+        this.h = h;
+        this.reset(true);
+    }
+
+    reset(cold = false) {
+        this.x = cold ? Math.random() * this.w : this.w * 0.5 + (Math.random() - 0.5) * 70;
+        this.y = cold ? Math.random() * this.h : this.h * 0.5 + (Math.random() - 0.5) * 70;
+        this.vx = (Math.random() - 0.5) * 1.4;
+        this.vy = (Math.random() - 0.5) * 1.4;
+        this.r = Math.random() * 1.7 + 0.45;
+        this.a = Math.random() * Math.PI * 2;
+        this.d = Math.random() * Math.max(this.w, this.h) * 0.72 + 20;
+        this.life = Math.random();
+        this.spin = (Math.random() - 0.5) * 0.06;
+    }
+
+    update(state, domain, cx, cy, t) {
+        if (state === STATES.IDLE) {
+            this.x += this.vx * 0.35;
+            this.y += this.vy * 0.35;
+            if (this.x < -30 || this.x > this.w + 30 || this.y < -30 || this.y > this.h + 30) this.reset(true);
+            return;
+        }
+
+        if (state === STATES.CHARGING || state === STATES.EXPANDING) {
+            const dx = cx - this.x;
+            const dy = cy - this.y;
+            this.vx += dx * 0.0025 + (Math.random() - 0.5) * 0.35;
+            this.vy += dy * 0.0025 + (Math.random() - 0.5) * 0.35;
+            this.vx *= 0.95;
+            this.vy *= 0.95;
+            this.x += this.vx;
+            this.y += this.vy;
+            if (Math.hypot(dx, dy) < 22) this.reset();
+            return;
+        }
+
+        if (domain === D.AVINASH) {
+            this.a += 0.018 + this.spin + 30 / Math.max(this.d, 20);
+            this.d *= 0.9975;
+            this.x = cx + Math.cos(this.a + t * 0.16) * this.d * 1.26;
+            this.y = cy + Math.sin(this.a) * this.d * 0.55;
+            if (this.d < 18) {
+                this.reset();
+                this.d = Math.max(this.w, this.h) * (0.28 + Math.random() * 0.7);
+            }
+        } else if (domain === D.GOJO) {
+            const dx = this.x - cx;
+            const dy = this.y - cy;
+            this.x += dx * 0.008 + Math.sin(t + this.a) * 0.18;
+            this.y += dy * 0.008 + Math.cos(t + this.a) * 0.18;
+            if (Math.hypot(dx, dy) > Math.max(this.w, this.h) * 0.9) {
+                this.x = cx + (Math.random() - 0.5) * 20;
+                this.y = cy + (Math.random() - 0.5) * 20;
+            }
+        } else if (domain === D.SUKUNA) {
+            this.x += Math.cos(this.a) * (5 + this.r * 2.2);
+            this.y += Math.sin(this.a) * (5 + this.r * 2.2) + 0.35;
+            if (this.x < -80 || this.x > this.w + 80 || this.y < -80 || this.y > this.h + 80) {
+                this.x = Math.random() * this.w;
+                this.y = -20 - Math.random() * this.h * 0.25;
+                this.a = Math.PI * 0.45 + (Math.random() - 0.5) * 0.65;
+            }
+        }
+    }
+
+    draw(ctx, state, domain, alpha) {
+        ctx.save();
+        ctx.globalAlpha *= alpha;
+        if (state === STATES.IDLE) {
+            ctx.fillStyle = `rgba(190,205,230,${0.08 + this.life * 0.08})`;
+            ctx.beginPath();
+            ctx.arc(this.x, this.y, this.r, 0, Math.PI * 2);
+            ctx.fill();
+        } else if (domain === D.SUKUNA) {
+            ctx.strokeStyle = Math.random() > 0.5 ? 'rgba(255,46,22,0.82)' : 'rgba(15,0,0,0.9)';
+            ctx.lineWidth = this.r * 1.7;
+            ctx.beginPath();
+            ctx.moveTo(this.x, this.y);
+            ctx.lineTo(this.x + Math.cos(this.a) * (28 + this.r * 18), this.y + Math.sin(this.a) * (28 + this.r * 18));
+            ctx.stroke();
+        } else if (domain === D.GOJO) {
+            ctx.fillStyle = Math.random() > 0.88 ? 'rgba(255,255,255,0.95)' : 'rgba(120,175,255,0.66)';
+            ctx.beginPath();
+            ctx.arc(this.x, this.y, this.r * 1.15, 0, Math.PI * 2);
+            ctx.fill();
+        } else {
+            ctx.fillStyle = Math.random() > 0.7 ? 'rgba(126,248,255,0.8)' : 'rgba(240,240,255,0.72)';
+            ctx.beginPath();
+            ctx.arc(this.x, this.y, this.r, 0, Math.PI * 2);
+            ctx.fill();
+        }
+        ctx.restore();
+    }
+}
+
+class DomainExpander {
+    constructor() {
+        this.canvas = document.getElementById('c');
+        this.ctx = this.canvas.getContext('2d');
+        this.ui = document.getElementById('ui');
+        this.titleEl = document.getElementById('title-text');
+        this.chargeWrap = document.getElementById('charge-wrap');
+        this.chargeBar = document.getElementById('charge-bar');
+        this.label = document.getElementById('domain-label');
+        this.resetBtn = document.getElementById('reset-btn');
+        this.status = document.getElementById('status-pill');
+        this.stateEl = document.getElementById('s-state');
+        this.debug = document.getElementById('debug');
+        this.audio = new DomainMusic(document.getElementById('audio-pill'));
+
+        this.state = STATES.IDLE;
+        this.domain = D.NONE;
+        this.chargeDomain = D.NONE;
+        this.expandStart = 0;
+        this.switchStart = 0;
+        this.switchFrom = D.NONE;
+        this.switchTo = D.NONE;
+        this.switchLock = D.NONE;
+        this.switchProgress = 0;
+        this.time = 0;
+        this.shake = 0;
+        this.targetScale = 1;
+        this.scale = 1;
+        this.lastFrame = performance.now();
+
+        this.resize();
+        this.particles = Array.from({ length: PARTICLE_COUNT }, () => new Particle(this.w, this.h));
+
+        window.addEventListener('resize', () => this.resize());
+        window.addEventListener('pointerdown', () => this.audio.unlock());
+        window.addEventListener('keydown', e => this.onKey(e));
+        this.resetBtn.addEventListener('click', () => this.reset());
+
+        this.detector = new GestureDetector({
+            onStart: domain => this.onGestureStart(domain),
+            onHold: (domain, duration) => this.onGestureHold(domain, duration),
+            onEnd: domain => this.onGestureEnd(domain),
+            onZoom: dist => this.onZoom(dist)
+        });
+
+        requestAnimationFrame(now => this.loop(now));
+    }
+
+    resize() {
+        const dpr = Math.min(window.devicePixelRatio || 1, 2);
+        this.w = Math.floor(window.innerWidth * dpr);
+        this.h = Math.floor(window.innerHeight * dpr);
+        this.viewW = window.innerWidth;
+        this.viewH = window.innerHeight;
+        this.canvas.width = this.w;
+        this.canvas.height = this.h;
+        this.canvas.style.width = `${this.viewW}px`;
+        this.canvas.style.height = `${this.viewH}px`;
+        this.ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+        this.cx = this.viewW * 0.5;
+        this.cy = this.viewH * 0.5;
+        if (this.particles) {
+            this.particles.forEach(p => {
+                p.w = this.viewW;
+                p.h = this.viewH;
+            });
+        }
+    }
+
+    onKey(e) {
+        const k = e.key.toLowerCase();
+        if (KEY_TO_DOMAIN[k]) {
+            this.audio.unlock();
+            this.forceDomain(KEY_TO_DOMAIN[k]);
+        }
+        if (k === 'r') this.reset();
+        if (k === 'd') this.debug.hidden = !this.debug.hidden;
+    }
+
+    showStatus(text, color = '#fff') {
+        this.status.textContent = text;
+        this.status.style.color = color;
+        this.status.classList.remove('hidden');
+        clearTimeout(this.statusTimer);
+        this.statusTimer = setTimeout(() => this.status.classList.add('hidden'), 1200);
+    }
+
+    setTitle(text, color = '#fff') {
+        this.titleEl.textContent = text;
+        this.titleEl.style.color = color;
+        this.titleEl.style.textShadow = `0 0 32px ${color}`;
+    }
+
+    startCharge(domain) {
+        this.state = STATES.CHARGING;
+        this.chargeDomain = domain;
+        this.domain = domain;
+        this.switchLock = D.NONE;
+        const info = DOMAIN_INFO[domain];
+        this.setTitle(`Charging ${info.name}`, info.pri);
+        this.chargeWrap.classList.add('active');
+        this.chargeBar.style.width = '0%';
+        this.chargeBar.style.background = `linear-gradient(90deg, ${info.sec}, ${info.pri})`;
+        this.chargeBar.style.boxShadow = `0 0 22px ${info.pri}`;
+        this.audio.unlock();
+        this.audio.startCharge(domain);
+    }
+
+    onGestureStart(domain) {
+        if (this.state === STATES.IDLE) {
+            this.startCharge(domain);
+            return;
+        }
+        if (this.state === STATES.DOMAIN && domain !== this.domain) {
+            this.switchProgress = 0;
+            this.showStatus(`Hold to transform: ${DOMAIN_INFO[domain].name}`, DOMAIN_INFO[domain].pri);
+        }
+    }
+
+    onGestureHold(domain, duration) {
+        if (this.state === STATES.CHARGING) {
+            if (domain !== this.chargeDomain) {
+                this.startCharge(domain);
+                return;
+            }
+            const pct = clamp(duration / CHARGE_MS, 0, 1);
+            this.chargeBar.style.width = `${pct * 100}%`;
+            this.shake = pct * 16;
+            if (pct >= 1) this.expand();
+            return;
+        }
+
+        if (this.state === STATES.DOMAIN && domain !== this.domain && this.switchLock !== domain) {
+            this.switchProgress = clamp(duration / SWITCH_HOLD_MS, 0, 1);
+            this.shake = 4 + this.switchProgress * 18;
+            if (this.switchProgress >= 1) {
+                this.switchDomain(domain);
+                this.switchLock = domain;
+            }
+        }
+    }
+
+    onGestureEnd(domain) {
+        if (this.state === STATES.CHARGING && domain === this.chargeDomain) {
+            this.cancelCharge();
+        }
+        if (this.switchLock === domain) this.switchLock = D.NONE;
+        this.switchProgress = 0;
+    }
+
+    onZoom(dist) {
+        if (this.state !== STATES.DOMAIN) return;
+        const t = clamp((dist - 0.12) / 0.62, 0, 1);
+        this.targetScale = 0.62 + t * 1.8;
+    }
+
+    cancelCharge() {
+        this.audio.stopCharge();
+        this.state = STATES.IDLE;
+        this.domain = D.NONE;
+        this.chargeDomain = D.NONE;
+        this.shake = 0;
+        this.chargeBar.style.width = '0%';
+        this.chargeWrap.classList.remove('active');
+        this.setTitle('Domain Expansion', '#fff');
+    }
+
+    expand() {
+        if (this.state === STATES.EXPANDING) return;
+        this.audio.stopCharge();
+        this.audio.impact(this.domain);
+        this.state = STATES.EXPANDING;
+        this.expandStart = performance.now();
+        this.shake = 34;
+        this.ui.classList.add('hidden');
+        this.chargeBar.style.width = '0%';
+        this.chargeWrap.classList.remove('active');
+    }
+
+    completeExpansion() {
+        this.state = STATES.DOMAIN;
+        this.audio.startDomain(this.domain);
+        this.label.textContent = DOMAIN_INFO[this.domain].label;
+        this.label.style.color = DOMAIN_INFO[this.domain].pri;
+        this.label.classList.add('visible');
+        this.resetBtn.classList.add('visible');
+    }
+
+    forceDomain(domain) {
+        if (this.state === STATES.IDLE || this.state === STATES.CHARGING) {
+            this.domain = domain;
+            this.expand();
+            return;
+        }
+        if (this.state === STATES.EXPANDING) {
+            this.domain = domain;
+            return;
+        }
+        if (this.state === STATES.DOMAIN) {
+            this.switchDomain(domain);
+        }
+    }
+
+    switchDomain(domain) {
+        if (domain === this.domain || !DOMAIN_INFO[domain]) return;
+        this.switchFrom = this.domain;
+        this.switchTo = domain;
+        this.switchStart = performance.now();
+        this.domain = domain;
+        this.switchProgress = 0;
+        this.shake = 26;
+        this.targetScale = 1;
+        this.label.textContent = DOMAIN_INFO[domain].label;
+        this.label.style.color = DOMAIN_INFO[domain].pri;
+        this.audio.impact(domain);
+        this.audio.startDomain(domain);
+        this.showStatus(`Transformed: ${DOMAIN_INFO[domain].name}`, DOMAIN_INFO[domain].pri);
+        this.particles.forEach((p, i) => {
+            if (i % 3 === 0) p.reset();
+        });
+    }
+
+    reset() {
+        this.audio.stopAll();
+        this.state = STATES.IDLE;
+        this.domain = D.NONE;
+        this.chargeDomain = D.NONE;
+        this.switchFrom = D.NONE;
+        this.switchTo = D.NONE;
+        this.switchLock = D.NONE;
+        this.switchProgress = 0;
+        this.shake = 0;
+        this.targetScale = 1;
+        this.scale = 1;
+        this.ui.classList.remove('hidden');
+        this.label.classList.remove('visible');
+        this.resetBtn.classList.remove('visible');
+        this.chargeWrap.classList.remove('active');
+        this.chargeBar.style.width = '0%';
+        this.setTitle('Domain Expansion', '#fff');
+        this.particles.forEach(p => p.reset(true));
+    }
+
+    drawIdle(ctx, t) {
+        ctx.fillStyle = 'rgba(0,0,0,0.28)';
+        ctx.fillRect(0, 0, this.viewW, this.viewH);
+        const glow = ctx.createRadialGradient(this.cx, this.cy, 0, this.cx, this.cy, Math.max(this.viewW, this.viewH) * 0.62);
+        glow.addColorStop(0, 'rgba(80,90,120,0.16)');
+        glow.addColorStop(0.45, 'rgba(18,22,34,0.08)');
+        glow.addColorStop(1, 'rgba(0,0,0,0)');
+        ctx.fillStyle = glow;
+        ctx.fillRect(0, 0, this.viewW, this.viewH);
+        lineBurst(ctx, this.cx, this.cy, Math.max(this.viewW, this.viewH) * 0.45, 34, 'rgba(170,190,230,0.08)', t * 0.06, 1);
+    }
+
+    drawCharging(ctx, t) {
+        this.drawIdle(ctx, t);
+        const info = DOMAIN_INFO[this.domain] || DOMAIN_INFO[D.AVINASH];
+        const r = 70 + Math.sin(t * 6) * 5;
+        const g = ctx.createRadialGradient(this.cx, this.cy, 0, this.cx, this.cy, r * 3.2);
+        g.addColorStop(0, `rgba(${info.rgb},0.34)`);
+        g.addColorStop(0.22, 'rgba(255,255,255,0.12)');
+        g.addColorStop(1, 'rgba(0,0,0,0)');
+        ctx.fillStyle = g;
+        ctx.fillRect(0, 0, this.viewW, this.viewH);
+        ctx.save();
+        ctx.translate(this.cx, this.cy);
+        ctx.rotate(t * 0.8);
+        ctx.strokeStyle = info.pri;
+        ctx.lineWidth = 2;
+        for (let i = 0; i < 4; i++) {
+            ctx.globalAlpha = 0.35 - i * 0.055;
+            ctx.beginPath();
+            ctx.ellipse(0, 0, r + i * 24, (r + i * 24) * 0.28, 0, 0, Math.PI * 2);
+            ctx.stroke();
+        }
+        ctx.restore();
+    }
+
+    drawDomainScene(ctx, domain, alpha, t) {
+        if (domain === D.AVINASH) this.drawAvinash(ctx, alpha, t);
+        if (domain === D.GOJO) this.drawGojo(ctx, alpha, t);
+        if (domain === D.SUKUNA) this.drawSukuna(ctx, alpha, t);
+    }
+
+    drawAvinash(ctx, alpha, t) {
+        ctx.save();
+        ctx.globalAlpha *= alpha;
+        ctx.filter = 'contrast(1.18) brightness(0.82)';
+        drawCoverImage(ctx, images.avinashBlackhole, this.viewW, this.viewH, 0.9, 1.08 + Math.sin(t * 0.23) * 0.025, Math.sin(t * 0.09) * 0.015);
+        ctx.filter = 'none';
+        ctx.globalCompositeOperation = 'screen';
+        const halo = ctx.createRadialGradient(this.cx, this.cy, 24, this.cx, this.cy, Math.max(this.viewW, this.viewH) * 0.58);
+        halo.addColorStop(0, 'rgba(0,0,0,0)');
+        halo.addColorStop(0.18, 'rgba(122,248,255,0.18)');
+        halo.addColorStop(0.38, 'rgba(180,92,255,0.14)');
+        halo.addColorStop(1, 'rgba(0,0,0,0)');
+        ctx.fillStyle = halo;
+        ctx.fillRect(0, 0, this.viewW, this.viewH);
+        ctx.globalCompositeOperation = 'source-over';
+
+        ctx.save();
+        ctx.translate(this.cx, this.cy);
+        ctx.rotate(-0.18 + t * 0.035);
+        for (let i = 0; i < 13; i++) {
+            const r = 70 + i * 24 + Math.sin(t * 1.3 + i) * 8;
+            ctx.globalAlpha = alpha * (0.12 + i * 0.01);
+            ctx.strokeStyle = i % 3 === 0 ? '#77f7ff' : '#f5f5f5';
+            ctx.lineWidth = i % 4 === 0 ? 1.8 : 0.8;
+            ctx.beginPath();
+            ctx.ellipse(0, 0, r * 1.55, r * 0.34, 0, 0.12, Math.PI * 1.92);
+            ctx.stroke();
+        }
+        ctx.restore();
+
+        const coreR = Math.min(this.viewW, this.viewH) * 0.082;
+        ctx.fillStyle = '#000';
+        ctx.beginPath();
+        ctx.arc(this.cx, this.cy, coreR, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.strokeStyle = `rgba(119,247,255,${0.55 + Math.sin(t * 2.2) * 0.2})`;
+        ctx.lineWidth = 2.5;
+        ctx.beginPath();
+        ctx.arc(this.cx, this.cy, coreR + 8, 0, Math.PI * 2);
+        ctx.stroke();
+        vignette(ctx, this.viewW, this.viewH, 0.78);
+        ctx.restore();
+    }
+
+    drawGojo(ctx, alpha, t) {
+        ctx.save();
+        ctx.globalAlpha *= alpha;
+        ctx.filter = 'contrast(1.12) brightness(0.9) saturate(1.15)';
+        drawCoverImage(ctx, images.gojoBlueVoid, this.viewW, this.viewH, 0.82, 1.04 + Math.sin(t * 0.2) * 0.02);
+        ctx.filter = 'grayscale(1) contrast(1.22) brightness(0.88)';
+        ctx.globalCompositeOperation = 'screen';
+        drawCoverImage(ctx, images.gojoEye, this.viewW, this.viewH, 0.52, 1.12, Math.sin(t * 0.08) * 0.02);
+        ctx.filter = 'none';
+        ctx.globalCompositeOperation = 'source-over';
+
+        const r = Math.min(this.viewW, this.viewH) * 0.16;
+        const iris = ctx.createRadialGradient(this.cx, this.cy, 0, this.cx, this.cy, r * 2.2);
+        iris.addColorStop(0, 'rgba(0,0,0,0.98)');
+        iris.addColorStop(0.24, 'rgba(4,8,22,0.96)');
+        iris.addColorStop(0.43, 'rgba(180,210,255,0.4)');
+        iris.addColorStop(0.62, 'rgba(70,130,255,0.18)');
+        iris.addColorStop(1, 'rgba(0,0,0,0)');
+        ctx.fillStyle = iris;
+        ctx.beginPath();
+        ctx.arc(this.cx, this.cy, r * 2.2, 0, Math.PI * 2);
+        ctx.fill();
+
+        ctx.save();
+        ctx.translate(this.cx, this.cy);
+        ctx.rotate(t * 0.045);
+        ctx.strokeStyle = 'rgba(236,246,255,0.52)';
+        for (let i = 0; i < 9; i++) {
+            ctx.globalAlpha = alpha * (0.2 + i * 0.025);
+            ctx.lineWidth = i % 2 ? 0.8 : 1.4;
+            ctx.beginPath();
+            ctx.ellipse(0, 0, r * (1.8 + i * 0.27), r * (0.92 + i * 0.08), 0, 0, Math.PI * 2);
+            ctx.stroke();
+        }
+        ctx.restore();
+
+        ctx.strokeStyle = `rgba(255,255,255,${0.64 + Math.sin(t * 2.6) * 0.18})`;
+        ctx.lineWidth = 1.7;
+        ctx.beginPath();
+        ctx.moveTo(this.cx, this.cy - r * 2.4);
+        ctx.lineTo(this.cx, this.cy + r * 2.4);
+        ctx.stroke();
+
+        ctx.fillStyle = 'rgba(0,0,0,0.78)';
+        for (let i = 0; i < 18; i++) {
+            const x = ((i * 173.3 + Math.sin(t + i) * 20) % (this.viewW + 180)) - 90;
+            const y = ((i * 91.7 + Math.cos(t * 0.7 + i) * 30) % (this.viewH + 160)) - 80;
+            const bw = 16 + (i % 5) * 11;
+            const bh = 48 + (i % 4) * 38;
+            ctx.fillRect(x, y, bw, bh);
+        }
+        vignette(ctx, this.viewW, this.viewH, 0.7);
+        ctx.restore();
+    }
+
+    drawSukuna(ctx, alpha, t) {
+        ctx.save();
+        ctx.globalAlpha *= alpha;
+        ctx.filter = 'contrast(1.18) brightness(0.72) saturate(1.35)';
+        drawCoverImage(ctx, images.sukunaLotus, this.viewW, this.viewH, 0.62, 1.08, 0, 0, 0);
+        ctx.globalCompositeOperation = 'screen';
+        drawCoverImage(ctx, images.sukunaRedWater, this.viewW, this.viewH, 0.38, 1.18, 0, 0, this.viewH * 0.04);
+        drawCoverImage(ctx, images.sukunaShrine, this.viewW, this.viewH, 0.34, 1.08 + Math.sin(t * 0.18) * 0.015, 0, 0, 0);
+        ctx.filter = 'none';
+        ctx.globalCompositeOperation = 'source-over';
+
+        const moonX = this.cx + Math.sin(t * 0.16) * 18;
+        const moonY = this.viewH * 0.22;
+        const moonR = Math.min(this.viewW, this.viewH) * 0.13;
+        const moon = ctx.createRadialGradient(moonX - moonR * 0.28, moonY - moonR * 0.22, moonR * 0.08, moonX, moonY, moonR * 1.9);
+        moon.addColorStop(0, 'rgba(255,236,120,0.84)');
+        moon.addColorStop(0.38, 'rgba(255,86,12,0.72)');
+        moon.addColorStop(0.66, 'rgba(170,0,0,0.42)');
+        moon.addColorStop(1, 'rgba(0,0,0,0)');
+        ctx.fillStyle = moon;
+        ctx.beginPath();
+        ctx.arc(moonX, moonY, moonR * 1.9, 0, Math.PI * 2);
+        ctx.fill();
+
+        const floorY = this.viewH * 0.62;
+        const floor = ctx.createLinearGradient(0, floorY, 0, this.viewH);
+        floor.addColorStop(0, 'rgba(45,0,0,0.16)');
+        floor.addColorStop(1, 'rgba(0,0,0,0.74)');
+        ctx.fillStyle = floor;
+        ctx.fillRect(0, floorY, this.viewW, this.viewH - floorY);
+
+        ctx.strokeStyle = 'rgba(255,68,24,0.22)';
+        ctx.lineWidth = 1;
+        for (let i = 0; i < 22; i++) {
+            const y = floorY + i * 18 + Math.sin(t * 2 + i) * 2;
+            ctx.beginPath();
+            ctx.moveTo(0, y);
+            ctx.bezierCurveTo(this.viewW * 0.28, y + Math.sin(i) * 12, this.viewW * 0.72, y - Math.cos(i) * 10, this.viewW, y + Math.sin(i * 0.7) * 8);
+            ctx.stroke();
+        }
+
+        ctx.fillStyle = 'rgba(8,0,0,0.86)';
+        const baseY = floorY + 34;
+        ctx.beginPath();
+        ctx.moveTo(this.cx - 170, baseY);
+        ctx.lineTo(this.cx - 130, baseY - 88);
+        ctx.lineTo(this.cx - 64, baseY - 120);
+        ctx.lineTo(this.cx, baseY - 172);
+        ctx.lineTo(this.cx + 64, baseY - 120);
+        ctx.lineTo(this.cx + 130, baseY - 88);
+        ctx.lineTo(this.cx + 170, baseY);
+        ctx.closePath();
+        ctx.fill();
+
+        ctx.strokeStyle = `rgba(255,54,18,${0.35 + Math.sin(t * 3) * 0.12})`;
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.moveTo(this.cx - 170, baseY);
+        ctx.lineTo(this.cx, baseY - 172);
+        ctx.lineTo(this.cx + 170, baseY);
+        ctx.stroke();
+
+        for (let i = 0; i < 14; i++) {
+            const x = (i / 13) * this.viewW;
+            const top = this.viewH * (0.08 + (i % 4) * 0.055);
+            const bottom = this.viewH * (0.72 + (i % 3) * 0.07);
+            ctx.strokeStyle = i % 2 ? 'rgba(0,0,0,0.72)' : 'rgba(255,40,18,0.25)';
+            ctx.lineWidth = 1 + (i % 3);
+            ctx.beginPath();
+            ctx.moveTo(x + Math.sin(t + i) * 8, top);
+            ctx.lineTo(x - 80 + Math.cos(t * 0.7 + i) * 28, bottom);
+            ctx.stroke();
+        }
+
+        vignette(ctx, this.viewW, this.viewH, 0.8);
+        ctx.restore();
+    }
+
+    drawExpansion(ctx, t, now) {
+        const p = clamp((now - this.expandStart) / EXPAND_MS, 0, 1);
+        const e = easeOutCubic(p);
+        const maxR = Math.hypot(this.viewW, this.viewH) * 0.72;
+        const r = lerp(20, maxR, e);
+
+        this.drawIdle(ctx, t);
+        ctx.save();
+        ctx.beginPath();
+        ctx.arc(this.cx, this.cy, r, 0, Math.PI * 2);
+        ctx.clip();
+        this.drawDomainScene(ctx, this.domain, e, t);
+        ctx.restore();
+
+        const info = DOMAIN_INFO[this.domain];
+        ctx.strokeStyle = `rgba(${info.rgb},${1 - p})`;
+        ctx.lineWidth = 36 * (1 - p) + 4;
+        ctx.beginPath();
+        ctx.arc(this.cx, this.cy, r, 0, Math.PI * 2);
+        ctx.stroke();
+
+        ctx.fillStyle = `rgba(${info.rgb},${(1 - p) * 0.08})`;
+        ctx.fillRect(0, 0, this.viewW, this.viewH);
+        if (p >= 1) this.completeExpansion();
+    }
+
+    drawParticles(ctx, state, domain, t, alpha = 1) {
+        ctx.save();
+        ctx.globalCompositeOperation = domain === D.SUKUNA ? 'source-over' : 'screen';
+        for (const p of this.particles) {
+            p.update(state, domain, this.cx, this.cy, t);
+            p.draw(ctx, state, domain, alpha);
+        }
+        ctx.restore();
+    }
+
+    drawTransition(ctx, t, now) {
+        const p = clamp((now - this.switchStart) / SWITCH_MS, 0, 1);
+        const e = easeInOut(p);
+        this.drawDomainScene(ctx, this.switchFrom, 1 - e, t);
+        this.drawDomainScene(ctx, this.switchTo, e, t);
+
+        const info = DOMAIN_INFO[this.switchTo];
+        const r = lerp(Math.min(this.viewW, this.viewH) * 0.18, Math.hypot(this.viewW, this.viewH) * 0.65, e);
+        ctx.save();
+        ctx.globalCompositeOperation = 'screen';
+        ctx.strokeStyle = `rgba(${info.rgb},${0.85 * (1 - p)})`;
+        ctx.lineWidth = 12 + 28 * (1 - p);
+        ctx.beginPath();
+        ctx.arc(this.cx, this.cy, r, 0, Math.PI * 2);
+        ctx.stroke();
+        lineBurst(ctx, this.cx, this.cy, r * 0.98, 48, `rgba(${info.rgb},${0.18 * (1 - p)})`, t * 0.5, 1);
+        ctx.restore();
+
+        if (p >= 1) {
+            this.switchFrom = D.NONE;
+            this.switchTo = D.NONE;
+        }
+    }
+
+    loop(now) {
+        const dt = Math.min((now - this.lastFrame) / 1000, 0.05);
+        this.lastFrame = now;
+        this.time += dt;
+        this.stateEl.textContent = this.state;
+
+        const ctx = this.ctx;
+        ctx.setTransform(window.devicePixelRatio ? Math.min(window.devicePixelRatio, 2) : 1, 0, 0, window.devicePixelRatio ? Math.min(window.devicePixelRatio, 2) : 1, 0, 0);
+        ctx.clearRect(0, 0, this.viewW, this.viewH);
+
+        this.shake *= 0.88;
+        this.scale += (this.targetScale - this.scale) * 0.08;
+
+        ctx.save();
+        if (Math.abs(this.shake) > 0.4) {
+            ctx.translate((Math.random() - 0.5) * this.shake, (Math.random() - 0.5) * this.shake);
+        }
+
+        if (this.state === STATES.DOMAIN) {
+            ctx.translate(this.cx, this.cy);
+            ctx.scale(this.scale, this.scale);
+            ctx.translate(-this.cx, -this.cy);
+        }
+
+        if (this.state === STATES.IDLE) {
+            this.drawIdle(ctx, this.time);
+            this.drawParticles(ctx, STATES.IDLE, D.NONE, this.time, 1);
+        } else if (this.state === STATES.CHARGING) {
+            this.drawCharging(ctx, this.time);
+            this.drawParticles(ctx, STATES.CHARGING, this.domain, this.time, 1);
+        } else if (this.state === STATES.EXPANDING) {
+            this.drawExpansion(ctx, this.time, now);
+            this.drawParticles(ctx, STATES.EXPANDING, this.domain, this.time, 0.85);
+        } else if (this.state === STATES.DOMAIN) {
+            if (this.switchTo !== D.NONE) {
+                this.drawTransition(ctx, this.time, now);
+            } else {
+                this.drawDomainScene(ctx, this.domain, 1, this.time);
+            }
+            this.drawParticles(ctx, STATES.DOMAIN, this.domain, this.time, 1);
+
+            if (this.switchProgress > 0 && this.switchLock === D.NONE) {
+                const info = DOMAIN_INFO[this.domain];
+                ctx.strokeStyle = `rgba(${info.rgb},${0.28 + this.switchProgress * 0.4})`;
+                ctx.lineWidth = 3 + this.switchProgress * 10;
+                ctx.beginPath();
+                ctx.arc(this.cx, this.cy, 60 + this.switchProgress * 130, 0, Math.PI * 2);
+                ctx.stroke();
+            }
+        }
+
+        ctx.restore();
+        requestAnimationFrame(next => this.loop(next));
+    }
+}
+
+window.addEventListener('load', () => {
+    new DomainExpander();
+});
+</script>
+</body>
+</html>
